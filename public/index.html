@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1020">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon-192.png">
+<title>Comment Comedian</title>
+<style>
+:root{--bg:#f6f4ff;--card:#fff;--ink:#1b1b2f;--mute:#6b6b85;--acc:#7c4dff;--acc2:#ff4d8d;--line:#e4e0f5}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1020;--card:#1a1b33;--ink:#f1f0ff;--mute:#9a9ab8;--line:#2d2f55}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom))}
+main{max-width:560px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:center;padding:16px 0 8px}
+h1{font-size:22px;margin:0;background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin:12px 0}
+button{font:inherit;border:0;border-radius:12px;padding:12px 16px;cursor:pointer;color:var(--ink);background:var(--line)}
+button.main{width:100%;font-weight:700;font-size:17px;color:#fff;background:linear-gradient(90deg,var(--acc),var(--acc2));padding:15px}
+button:disabled{opacity:.5}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row>button{flex:1}
+.chip{padding:8px 12px;border-radius:99px;font-size:14px;flex:none!important}
+.chip.on{background:var(--acc);color:#fff}
+.thumbs{display:flex;gap:8px;overflow-x:auto;margin-top:10px}
+.thumbs div{position:relative;flex:none}
+.thumbs img{height:84px;border-radius:10px;border:1px solid var(--line);display:block}
+.thumbs b{position:absolute;top:-6px;right:-6px;background:var(--acc2);color:#fff;border-radius:50%;width:22px;height:22px;text-align:center;line-height:22px;font-size:13px}
+textarea,input{width:100%;font:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:12px;padding:10px}
+textarea{resize:vertical;min-height:70px}
+#out{min-height:150px;font-size:17px}
+.mute{color:var(--mute);font-size:13px}
+.err{color:#e5384f;font-size:14px;margin:8px 0}
+.h{padding:10px 0;border-top:1px solid var(--line);font-size:14px;cursor:pointer}
+.spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<main>
+<header><h1>🎤 Comment Comedian</h1><button id="gear" aria-label="Settings">⚙</button></header>
+
+<div class="card" id="settings" hidden>
+  <label class="mute">App password (if you set one on the server)</label>
+  <input id="pw" type="password" autocomplete="off">
+</div>
+
+<div class="card">
+  <div class="row"><button id="pick">📷 Add screenshots</button><button id="clear">Clear</button></div>
+  <input id="file" type="file" accept="image/*" multiple hidden>
+  <div class="thumbs" id="thumbs"></div>
+  <p class="mute" id="hint">Tip: on Android, share screenshots straight from your gallery to this app. The post itself isn't needed: the summary uses the language most comments are written in.</p>
+  <textarea id="txt" placeholder="Optional: paste comment text, or a line about the post for extra context"></textarea>
+</div>
+
+<div class="card">
+  <div class="row" id="tones">
+    <button class="chip on" data-t="funny">😂 Hilarious</button>
+    <button class="chip" data-t="news">📺 News anchor</button>
+    <button class="chip" data-t="sports">⚽ Commentator</button>
+    <button class="chip" data-t="nature">🦁 Nature doc</button>
+  </div>
+</div>
+
+<button class="main" id="go">✨ Make it funny</button>
+<div class="err" id="err"></div>
+
+<div class="card" id="res" hidden>
+  <textarea id="out"></textarea>
+  <div class="row" style="margin-top:10px">
+    <button id="copy" class="chip on" style="flex:1!important">📋 Copy</button>
+    <button id="again" class="chip" style="flex:1!important">🔁 Regenerate</button>
+    <button id="share" class="chip" style="flex:1!important">↗ Share</button>
+  </div>
+  <p class="mute">Edit freely, then Copy and paste it into the Facebook comment box.</p>
+</div>
+
+<div class="card" id="histcard" hidden><b>Recent</b><div id="hist"></div></div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let files = [], tone = 'funny';
+const store = {
+  get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d } catch { return d } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }
+};
+
+$('#pw').value = store.get('pw', '');
+$('#pw').oninput = e => store.set('pw', e.target.value);
+$('#gear').onclick = () => $('#settings').hidden = !$('#settings').hidden;
+$('#pick').onclick = () => $('#file').click();
+$('#file').onchange = e => { files.push(...e.target.files); e.target.value = ''; render(); };
+$('#clear').onclick = () => { files = []; $('#txt').value = ''; render(); };
+$('#tones').onclick = e => {
+  const b = e.target.closest('[data-t]'); if (!b) return;
+  tone = b.dataset.t;
+  document.querySelectorAll('#tones .chip').forEach(c => c.classList.toggle('on', c === b));
+};
+
+function render() {
+  const t = $('#thumbs'); t.innerHTML = '';
+  files.forEach((f, i) => {
+    const d = document.createElement('div');
+    d.innerHTML = '<img><b>×</b>';
+    d.querySelector('img').src = URL.createObjectURL(f);
+    d.querySelector('b').onclick = () => { files.splice(i, 1); render(); };
+    t.appendChild(d);
+  });
+  $('#hint').textContent = files.length ? files.length + ' screenshot(s) ready.' : $('#hint').textContent;
+}
+
+// Shrink + slice long screenshots so they fit the server's ~4.5MB limit and stay readable.
+async function slices(maxW, q) {
+  const out = [], STEP = 1500;
+  for (const f of files) {
+    const bmp = await createImageBitmap(f);
+    const s = Math.min(1, maxW / bmp.width);
+    const W = Math.round(bmp.width * s), H = Math.round(bmp.height * s);
+    for (let y = 0; y < H; y += STEP) {
+      const h = Math.min(STEP, H - y);
+      const c = document.createElement('canvas'); c.width = W; c.height = h;
+      c.getContext('2d').drawImage(bmp, 0, y / s, bmp.width, h / s, 0, 0, W, h);
+      out.push(c.toDataURL('image/jpeg', q).split(',')[1]);
+    }
+    bmp.close && bmp.close();
+  }
+  return out;
+}
+async function prep() {
+  for (const [w, q] of [[900, .78], [760, .62], [640, .5], [540, .4]]) {
+    const s = await slices(w, q);
+    if (s.length <= 16 && s.join('').length < 4.0e6) return s;
+  }
+  throw new Error('Too much to send. Try fewer or shorter screenshots.');
+}
+
+async function run() {
+  $('#err').textContent = '';
+  if (!files.length && !$('#txt').value.trim()) { $('#err').textContent = 'Add screenshots or paste some text first.'; return; }
+  const go = $('#go'); go.disabled = true; go.innerHTML = '<span class="spin">🎭</span> Writing jokes…';
+  try {
+    const images = await prep();
+    const r = await fetch('/api/summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-app-password': store.get('pw', '') },
+      body: JSON.stringify({ images, text: $('#txt').value, tone })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
+    $('#out').value = d.summary; $('#res').hidden = false;
+    const h = [{ t: d.summary }, ...store.get('hist', [])].slice(0, 10); store.set('hist', h); hist();
+    $('#res').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) { $('#err').textContent = e.message; }
+  go.disabled = false; go.textContent = '✨ Make it funny';
+}
+$('#go').onclick = run; $('#again').onclick = run;
+
+$('#copy').onclick = async () => {
+  const v = $('#out').value;
+  try { await navigator.clipboard.writeText(v); } catch { $('#out').select(); document.execCommand('copy'); }
+  $('#copy').textContent = '✅ Copied!'; setTimeout(() => $('#copy').textContent = '📋 Copy', 1500);
+};
+$('#share').onclick = () => navigator.share ? navigator.share({ text: $('#out').value }).catch(() => {}) : $('#copy').click();
+
+function hist() {
+  const h = store.get('hist', []); $('#histcard').hidden = !h.length;
+  $('#hist').innerHTML = '';
+  h.forEach(x => {
+    const d = document.createElement('div'); d.className = 'h'; d.textContent = x.t;
+    d.onclick = () => { $('#out').value = x.t; $('#res').hidden = false; $('#res').scrollIntoView({ behavior: 'smooth' }); };
+    $('#hist').appendChild(d);
+  });
+}
+hist();
+
+// Receive screenshots shared from other apps (Android Share Target)
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+if (location.search.includes('shared')) (async () => {
+  try {
+    const c = await caches.open('share-v1');
+    for (const r of await c.keys()) {
+      const res = await c.match(r);
+      if (r.url.includes('/shared/img')) files.push(await res.blob());
+      else if (r.url.endsWith('/shared/text')) $('#txt').value = await res.text();
+      await c.delete(r);
+    }
+    history.replaceState(null, '', '/'); render();
+  } catch {}
+})();
+</script>
+</body>
+</html>
